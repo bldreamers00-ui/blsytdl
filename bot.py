@@ -5,6 +5,22 @@ import yt_dlp
 import re
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from flask import Flask
+import threading
+
+# Health Check အတွက် Port ဖွင့်ပေးခြင်း
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_web():
+    # Koyeb က တောင်းဆိုတဲ့ Port 8000 မှာ run ပေးမယ်
+    web_app.run(host='0.0.0.0', port=8000)
+
+# Bot စတာနဲ့ Web server ပါ တပြိုင်တည်း စတင်မယ်
+threading.Thread(target=run_web).start()
 
 # Credentials
 API_ID = 33140158
@@ -149,3 +165,4 @@ async def start_final_process(client, message, uid):
 
 
 app.run()
+
