@@ -35,7 +35,7 @@ threading.Thread(
 # ---------- Configuration (ENV ONLY) ----------
 API_ID = int(os.getenv("33140158"))
 API_HASH = os.getenv("936e6187972a97c9f9b616516f24b61c")
-BOT_TOKEN = os.getenv("8571685060:AAEYF82CrIqSaVVIEVedNV-iKXJc0D70LmE")
+BOT_TOKEN = os.getenv("8436731415:AAElimTsJtpW8sh6xtV2JDcC6k3Y_woRHtY")
 
 app = Client(
     "android_mode_bot",
@@ -242,4 +242,5 @@ async def start_final_process(client, message, uid):
 if __name__ == "__main__":
     print("✅ Android Mode Bot started")
     app.run()
+
 
