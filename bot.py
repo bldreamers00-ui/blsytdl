@@ -3,6 +3,7 @@ import math
 import asyncio
 import threading
 import re
+import time
 from flask import Flask
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -14,7 +15,7 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# --- 2. Configuration (User's Info) ---
+# --- 2. Configuration ---
 API_ID = 33140158
 API_HASH = "936e6187972a97c9f9b616516f24b61c"
 BOT_TOKEN = "8436731415:AAElimTsJtpW8sh6xtV2JDcC6k3Y_woRHtY"
@@ -29,7 +30,7 @@ subtitle_state = {}
 # --- 3. Health Check Section (Koyeb အတွက် အရေးကြီးဆုံး) ---
 web_app = Flask(__name__)
 @web_app.route('/')
-def home(): return "Bot is Alive!"
+def home(): return "Bot is Alive and Running!"
 
 def run_flask():
     # Logs ထဲမှာ 8000 ပြနေလို့ 8000 ကိုပဲ အသေသုံးပါမယ်
@@ -72,7 +73,6 @@ async def resolution_handler(_, cq):
     await cq.answer()
     status = await cq.message.reply(f"📥 {res}p ဖြင့် ဒေါင်းလုဒ်ဆွဲနေသည်...")
     
-    # Android Mode ဖြင့် ဒေါင်းခြင်း
     ydl_opts = {
         "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
         "format": f"bestvideo[height<={res}][ext=mp4]+bestaudio[ext=m4a]/best[height<={res}][ext=mp4]/best",
@@ -87,7 +87,6 @@ async def resolution_handler(_, cq):
         await status.edit("📤 Telegram သို့ တင်ပို့နေသည်...")
         await cq.message.reply_video(video=video_path, caption=f"🎬 **{info.get('title')}**\n📺 Quality: {res}p", supports_streaming=True)
         
-        # Subtitle ခွဲသည့်အပိုင်း
         subs = info.get("requested_subtitles") or {}
         if subs:
             lang = list(subs.keys())[0]
@@ -100,19 +99,20 @@ async def resolution_handler(_, cq):
         await status.delete()
         if os.path.exists(video_path): os.remove(video_path)
     except Exception as e:
-        # Error တက်ရင် Cookie လိုအပ်နေတာလားဆိုတာ စစ်ဆေးခြင်း
-        if "confirm you're not a bot" in str(e):
-            await status.edit("❌ YouTube က ပိတ်ထားပါတယ်။ GitHub မှာ cookies.txt တင်ပေးဖို့ လိုပါတယ်။")
-        else:
-            await status.edit(f"❌ Error: {str(e)}")
+        await status.edit(f"❌ Error: {str(e)}")
 
-# --- 5. Main Loop (Koyeb မှာ အမြဲပွင့်နေအောင် လုပ်ခြင်း) ---
+# --- 5. Main Execution ---
 if __name__ == "__main__":
     # Flask ကို Thread နဲ့ သီးသန့် Run ပါမယ်
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
     
-    # Bot ကို Main Thread မှာ Run ပါမယ်
+    # Bot ကို စတင်ပါမယ်
     print("🚀 Bot is starting...")
-    app.run()
+    app.start() # app.run() အစား app.start() ကို သုံးပါမယ်
+    print("✅ Bot is online!")
+    
+    # Script မပြီးသွားအောင် Loop ပတ်ထားပါမယ်
+    while True:
+        time.sleep(60)
