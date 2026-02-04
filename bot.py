@@ -3,24 +3,19 @@ import asyncio
 import math
 import yt_dlp
 import re
+import threading
+from flask import Flask
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from flask import Flask
-import threading
-from pyrogram import Client, filters
 
 # --- Health Check Section (For Koyeb) ---
 web_app = Flask(__name__)
-
 @web_app.route('/')
-def home():
-    return "Bot is running!"
+def home(): return "Bot is running!"
 
 def run_web():
-    # Koyeb requires port 8000 by default
     web_app.run(host='0.0.0.0', port=8000)
 
-# Start Web Server in background
 threading.Thread(target=run_web, daemon=True).start()
 
 # --- Telegram Bot Section ---
@@ -36,26 +31,47 @@ def get_video_info(url):
         return ydl.extract_info(url, download=False)
 
 @app.on_message(filters.text & filters.private)
-async def handle_link(client, message):
-    url = message.text
-    if not url.startswith("http"): return
-    
-    msg = await message.reply_text("🔎 ဗီဒီယိုအချက်အလက်များကို စစ်ဆေးနေသည်...")
-    try:
-        info = await asyncio.to_thread(get_video_info, url)
-        title = info.get('title', 'Video')
-        subs = info.get('subtitles', {})
-        
-        user_data[message.from_user.id] = {'url': url, 'title': title, 'subs': subs}
-        
-        buttons = [[
-            InlineKeyboardButton("360p", callback_data="res_360"),
-            InlineKeyboardButton("720p", callback_data="res_720"),
-            InlineKeyboardButton("1080p", callback_data="res_1080")
-        ]]
-        await msg.edit(f"🎬 **{title}**\n\nResolution ရွေးချယ်ပေးပါ-", reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception as e:
-        await msg.edit(f"❌ Error: {str(e)}")
+async def main_handler(client, message):
+    uid = message.from_user.id
+    text = message.text
+
+    # Step စစ်ဆေးခြင်း (လူခွဲဖို့ နံပါတ်စောင့်နေချိန်)
+    if uid in user_data and user_data[uid].get('step') == 'wait_split':
+        try:
+            num = int(text)
+            total = user_data[uid]['line_count']
+            per_person = math.ceil(total / num)
+            
+            summary = f"🎬 **{user_data[uid]['title']}**\nစုစုပေါင်း စာကြောင်းရေ ({total})\n\n"
+            for i in range(num):
+                start = (i * per_person) + 1
+                end = min((i + 1) * per_person, total)
+                summary += f"({chr(97+i)}) {start} - {end}\n"
+            
+            await message.reply_text(summary)
+            await start_final_process(client, message, uid)
+        except ValueError:
+            await message.reply_text("❌ ကျေးဇူးပြု၍ ကိန်းဂဏန်း (နံပါတ်) ပဲ ရိုက်ထည့်ပါ။")
+        return
+
+    # Link အသစ်စစ်ဆေးခြင်း
+    if text.startswith("http"):
+        msg = await message.reply_text("🔎 ဗီဒီယိုအချက်အလက်များကို စစ်ဆေးနေသည်...")
+        try:
+            info = await asyncio.to_thread(get_video_info, text)
+            title = info.get('title', 'Video')
+            subs = info.get('subtitles', {})
+            
+            user_data[uid] = {'url': text, 'title': title, 'subs': subs}
+            
+            buttons = [[
+                InlineKeyboardButton("360p", callback_data="res_360"),
+                InlineKeyboardButton("720p", callback_data="res_720"),
+                InlineKeyboardButton("1080p", callback_data="res_1080")
+            ]]
+            await msg.edit(f"🎬 **{title}**\n\nResolution ရွေးချယ်ပေးပါ-", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception as e:
+            await msg.edit(f"❌ Error: {str(e)}")
 
 @app.on_callback_query(filters.regex("^res_"))
 async def choose_res(client, callback_query):
@@ -68,7 +84,7 @@ async def choose_res(client, callback_query):
         user_data[uid]['selected_sub'] = 'en'
         await proceed_to_sub_split(callback_query.message, uid)
     else:
-        sub_langs = list(subs.keys())[:10] # ပထမ ၁၀ ခုပဲပြမယ်
+        sub_langs = list(subs.keys())[:10]
         if not sub_langs:
             user_data[uid]['selected_sub'] = None
             await proceed_to_sub_split(callback_query.message, uid)
@@ -89,74 +105,44 @@ async def proceed_to_sub_split(message, uid):
     line_count = 0
     
     if lang:
-        srt_name = f"subs_{uid}"
+        srt_name = f"{uid}_subs"
         ydl_opts = {'skip_download': True, 'writesubtitles': True, 'subtitleslangs': [lang], 'outtmpl': srt_name}
-        await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([data['url']]))
-        
-        # SRT ဖိုင်ရှာခြင်း (Extension က .en.srt စသဖြင့် ဖြစ်နိုင်လို့)
-        srt_file = ""
-        for f in os.listdir('.'):
-            if f.startswith(srt_name) and f.endswith(".srt"):
-                srt_file = f
-                break
-        
-        if srt_file:
-            with open(srt_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-                line_count = len(re.findall(r'\d+\n\d{2}:\d{2}:\d{2}', content))
-            user_data[uid]['line_count'] = line_count
-            user_data[uid]['srt_path'] = srt_file
+        try:
+            await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([data['url']]))
+            # SRT ဖိုင်အမည် အတိအကျရှာခြင်း
+            for f in os.listdir('.'):
+                if f.startswith(srt_name) and f.endswith(".srt"):
+                    with open(f, 'r', encoding='utf-8') as file:
+                        content = file.read()
+                        line_count = len(re.findall(r'\d+\n\d{2}:\d{2}:\d{2}', content))
+                    user_data[uid]['line_count'] = line_count
+                    user_data[uid]['srt_path'] = f
+                    break
+        except: pass
 
     await message.edit(f"📊 **{data['title']}**\nစုစုပေါင်း စာကြောင်းရေ: ({line_count})\n\nလူဘယ်နှစ်ယောက် ခွဲမလဲ? (နံပါတ်တစ်ခုတည်း ရိုက်ပို့ပေးပါ)")
     user_data[uid]['step'] = 'wait_split'
 
-@app.on_message(filters.text & filters.private)
-async def handle_split_input(client, message):
-    uid = message.from_user.id
-    if user_data.get(uid, {}).get('step') == 'wait_split':
-        try:
-            num = int(message.text)
-            total = user_data[uid]['line_count']
-            per_person = math.ceil(total / num)
-            
-            summary = f"🎬 **{user_data[uid]['title']}**\nစုစုပေါင်း စာကြောင်းရေ ({total})\n\n"
-            for i in range(num):
-                start = (i * per_person) + 1
-                end = min((i + 1) * per_person, total)
-                summary += f"({chr(97+i)}) {start} - {end}\n"
-            
-            await message.reply_text(summary)
-            await start_final_process(client, message, uid)
-        except ValueError:
-            await message.reply_text("❌ ကျေးဇူးပြု၍ ကိန်းဂဏန်း (နံပါတ်) ပဲ ရိုက်ထည့်ပါ။")
-
 async def start_final_process(client, message, uid):
     data = user_data[uid]
-    status = await message.reply_text("📥 ဒေါင်းလုဒ်စတင်နေပါပြီ...")
-
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            p = d.get('_percent_str', '0%')
-            s = d.get('_speed_str', '0MB/s')
-            try:
-                loop = asyncio.get_event_loop()
-                loop.create_task(status.edit(f"🚀 **Speed:** {s}\n📊 **Progress:** {p}"))
-            except: pass
+    status = await message.reply_text("📥 ဒေါင်းလုဒ်စတင်နေပါပြီ... (ခဏစောင့်ပေးပါ)")
 
     ydl_opts = {
         'format': f'bestvideo[height<={data["res"]}][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
         'outtmpl': f'downloads/{uid}_video.%(ext)s',
-        'progress_hooks': [progress_hook],
     }
 
     try:
+        # Downloads folder မရှိရင် ဆောက်မယ်
+        if not os.path.exists('downloads'): os.makedirs('downloads')
+        
         info = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(data['url'], download=True))
         video_path = yt_dlp.YoutubeDL(ydl_opts).prepare_filename(info)
         
         await status.edit("📤 Telegram သို့ တင်ပို့နေသည်...")
         await client.send_video(chat_id=message.chat.id, video=video_path, caption=data['title'], supports_streaming=True)
         
-        # အကုန်ပြီးရင် ဖျက်မယ်
+        # Cleaning
         if os.path.exists(video_path): os.remove(video_path)
         if 'srt_path' in data and os.path.exists(data['srt_path']): os.remove(data['srt_path'])
         await status.delete()
@@ -164,7 +150,4 @@ async def start_final_process(client, message, uid):
     except Exception as e:
         await status.edit(f"❌ အမှားရှိခဲ့သည်: {str(e)}")
 
-
 app.run()
-
-
