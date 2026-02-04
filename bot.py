@@ -25,7 +25,7 @@ threading.Thread(target=lambda: web_app.run(host='0.0.0.0', port=8000), daemon=T
 # --- 4. Configuration ---
 API_ID = 33140158
 API_HASH = "936e6187972a97c9f9b616516f24b61c"
-BOT_TOKEN = "8571685060:AAFJyzZ6CF150w51k0ft_PHXgUJPaaPJg6I"
+BOT_TOKEN = "8571685060:AAEYF82CrIqSaVVIEVedNV-iKXJc0D70LmE"
 
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user_data = {}
@@ -136,4 +136,5 @@ async def start_final_process(client, message, uid):
 if __name__ == "__main__":
     print("Bot is starting with Android Mode...")
     app.run()
+
 
