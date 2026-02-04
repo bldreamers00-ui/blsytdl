@@ -7,8 +7,9 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask
 import threading
+from pyrogram import Client, filters
 
-# Health Check အတွက် Port ဖွင့်ပေးခြင်း
+# --- Health Check Section (For Koyeb) ---
 web_app = Flask(__name__)
 
 @web_app.route('/')
@@ -16,18 +17,18 @@ def home():
     return "Bot is running!"
 
 def run_web():
-    # Koyeb က တောင်းဆိုတဲ့ Port 8000 မှာ run ပေးမယ်
+    # Koyeb requires port 8000 by default
     web_app.run(host='0.0.0.0', port=8000)
 
-# Bot စတာနဲ့ Web server ပါ တပြိုင်တည်း စတင်မယ်
-threading.Thread(target=run_web).start()
+# Start Web Server in background
+threading.Thread(target=run_web, daemon=True).start()
 
-# Credentials
+# --- Telegram Bot Section ---
 API_ID = 33140158
 API_HASH = "936e6187972a97c9f9b616516f24b61c"
 BOT_TOKEN = "8436731415:AAElimTsJtpW8sh6xtV2JDcC6k3Y_woRHtY"
 
-app = Client("adv_ytdl_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user_data = {}
 
 def get_video_info(url):
@@ -165,4 +166,5 @@ async def start_final_process(client, message, uid):
 
 
 app.run()
+
 
