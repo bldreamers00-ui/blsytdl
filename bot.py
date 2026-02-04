@@ -21,7 +21,7 @@ threading.Thread(target=run_web, daemon=True).start()
 # --- Telegram Bot Section ---
 API_ID = 33140158
 API_HASH = "936e6187972a97c9f9b616516f24b61c"
-BOT_TOKEN = "8436731415:AAElimTsJtpW8sh6xtV2JDcC6k3Y_woRHtY"
+BOT_TOKEN = "8571685060:AAFJyzZ6CF150w51k0ft_PHXgUJPaaPJg6I"
 
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user_data = {}
@@ -151,3 +151,4 @@ async def start_final_process(client, message, uid):
         await status.edit(f"❌ အမှားရှိခဲ့သည်: {str(e)}")
 
 app.run()
+
