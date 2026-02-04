@@ -4,6 +4,10 @@ import math
 import yt_dlp
 import re
 import threading
+import time
+def keep_alive():
+    while True:
+        time.sleep(600) # ၁၀ မိနစ် တစ်ခါ စစ်ဆေးသည်
 from flask import Flask
 
 # ---------- Asyncio fix (Python 3.12+) ----------
@@ -24,7 +28,7 @@ def home():
     return "Android Mode Bot is running!"
 
 threading.Thread(
-    target=lambda: web_app.run(host="0.0.0.0", port=8000),
+    target=lambda: web_app.run(host="0.0.0.0", port=8080),
     daemon=True
 ).start()
 
@@ -75,11 +79,14 @@ async def main_handler(client, message):
 
         try:
             ydl_opts = {
-                "quiet": True,
-                "extractor_args": {
-                    "youtube": {"player_client": ["android"]}
-                }
-            }
+    "cookies": "cookies.txt",
+    "outtmpl": "downloads/%(title)s.%(ext)s",
+    "format": f"bestvideo[height<={res}]+bestaudio/best",
+    "quiet": True,
+    "extractor_args": {
+        "youtube": {"player_client": ["ios"]}
+    }
+}
 
             info = await asyncio.to_thread(
                 lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(text, download=False)
@@ -235,3 +242,4 @@ async def start_final_process(client, message, uid):
 if __name__ == "__main__":
     print("✅ Android Mode Bot started")
     app.run()
+
