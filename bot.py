@@ -1,246 +1,160 @@
-import asyncio
 import os
 import math
-import yt_dlp
-import re
-import threading
-import time
-def keep_alive():
-    while True:
-        time.sleep(600) # ၁၀ မိနစ် တစ်ခါ စစ်ဆေးသည်
-from flask import Flask
-
-# ---------- Asyncio fix (Python 3.12+) ----------
-try:
-    asyncio.get_running_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
-# ---------- Pyrogram ----------
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from yt_dlp import YoutubeDL
 
-# ---------- Web server (Koyeb health check) ----------
-web_app = Flask(__name__)
+# ================= CONFIG =================
+API_ID = 33140158
+API_HASH = "936e6187972a97c9f9b616516f24b61c"
+BOT_TOKEN = "8436731415:AAElimTsJtpW8sh6xtV2JDcC6k3Y_woRHtY"
 
-@web_app.route("/")
-def home():
-    return "Android Mode Bot is running!"
-
-threading.Thread(
-    target=lambda: web_app.run(host="0.0.0.0", port=8080),
-    daemon=True
-).start()
-
-# ---------- Configuration (ENV ONLY) ----------
-API_ID = int(os.getenv("33140158"))
-API_HASH = os.getenv("936e6187972a97c9f9b616516f24b61c")
-BOT_TOKEN = os.getenv("8436731415:AAElimTsJtpW8sh6xtV2JDcC6k3Y_woRHtY")
+DOWNLOAD_DIR = "downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 app = Client(
-    "android_mode_bot",
+    "bot3_session_clean",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
-user_data = {}
+# ================= STATE =================
+user_links = {}
+subtitle_state = {}
 
-# ---------- Helpers ----------
-def ensure_dirs():
-    os.makedirs("downloads", exist_ok=True)
-
-# ---------- Message handler ----------
-@app.on_message(filters.private & filters.text)
-async def main_handler(client, message):
-    uid = message.from_user.id
-    text = message.text.strip()
-
-    # waiting for split count
-    if uid in user_data and user_data[uid].get("step") == "wait_split":
-        if text.isdigit():
-            num = int(text)
-            total = user_data[uid]["line_count"]
-            per = math.ceil(total / num)
-
-            summary = f"🎬 **{user_data[uid]['title']}**\n\n"
-            for i in range(num):
-                s = i * per + 1
-                e = min((i + 1) * per, total)
-                summary += f"({chr(97+i)}) {s} - {e}\n"
-
-            await message.reply_text(summary)
-            await start_final_process(client, message, uid)
-            return
-
-    # youtube link
-    if text.startswith("http"):
-        msg = await message.reply_text("🔎 Android mode ဖြင့် စစ်ဆေးနေသည်...")
-
-        try:
-            ydl_opts = {
-    "cookies": "cookies.txt",
-    "outtmpl": "downloads/%(title)s.%(ext)s",
-    "format": f"bestvideo[height<={res}]+bestaudio/best",
-    "quiet": True,
-    "extractor_args": {
-        "youtube": {"player_client": ["ios"]}
-    }
-}
-
-            info = await asyncio.to_thread(
-                lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(text, download=False)
-            )
-
-            user_data[uid] = {
-                "url": text,
-                "title": info.get("title"),
-                "subs": info.get("subtitles", {})
-            }
-
-            buttons = [[
+# ================= UI =================
+def resolution_kb():
+    return InlineKeyboardMarkup(
+        [
+            [
                 InlineKeyboardButton("360p", callback_data="res_360"),
                 InlineKeyboardButton("720p", callback_data="res_720"),
-                InlineKeyboardButton("1080p", callback_data="res_1080"),
-            ]]
-
-            await msg.edit(
-                f"🎬 **{info.get('title')}**\n\nResolution ရွေးပါ ⬇️",
-                reply_markup=InlineKeyboardMarkup(buttons)
-            )
-
-        except Exception as e:
-            await msg.edit(f"❌ Error: {e}")
-
-# ---------- Resolution ----------
-@app.on_callback_query(filters.regex("^res_"))
-async def choose_res(_, cq):
-    await cq.answer()
-    uid = cq.from_user.id
-
-    if uid not in user_data:
-        await cq.message.edit("❌ Session expired. Link ပြန်ပို့ပါ")
-        return
-
-    res = cq.data.split("_")[1]
-    user_data[uid]["res"] = res
-
-    subs = user_data[uid]["subs"]
-
-    if "en" in subs:
-        user_data[uid]["selected_sub"] = "en"
-        await proceed_to_sub_split(cq.message, uid)
-    elif subs:
-        buttons = [[InlineKeyboardButton(l, callback_data=f"sub_{l}")]
-                   for l in list(subs.keys())[:10]]
-        await cq.message.edit("Sub ရွေးပါ ⬇️", reply_markup=InlineKeyboardMarkup(buttons))
-    else:
-        user_data[uid]["selected_sub"] = None
-        await proceed_to_sub_split(cq.message, uid)
-
-# ---------- Subtitle ----------
-@app.on_callback_query(filters.regex("^sub_"))
-async def choose_sub(_, cq):
-    await cq.answer()
-    uid = cq.from_user.id
-    user_data[uid]["selected_sub"] = cq.data.split("_")[1]
-    await proceed_to_sub_split(cq.message, uid)
-
-async def proceed_to_sub_split(message, uid):
-    data = user_data[uid]
-    line_count = 0
-
-    if data.get("selected_sub"):
-        ensure_dirs()
-        srt_prefix = f"downloads/{uid}_subs"
-
-        ydl_opts = {
-            "skip_download": True,
-            "writesubtitles": True,
-            "subtitleslangs": [data["selected_sub"]],
-            "outtmpl": srt_prefix,
-            "postprocessors": [{
-                "key": "FFmpegSubtitlesConvertor",
-                "format": "srt"
-            }],
-            "extractor_args": {
-                "youtube": {"player_client": ["android"]}
-            }
-        }
-
-        try:
-            await asyncio.to_thread(
-                lambda: yt_dlp.YoutubeDL(ydl_opts).download([data["url"]])
-            )
-
-            for f in os.listdir("downloads"):
-                if f.startswith(f"{uid}_subs") and f.endswith(".srt"):
-                    path = f"downloads/{f}"
-                    with open(path, encoding="utf-8") as s:
-                        content = s.read()
-                        line_count = len(
-                            re.findall(r"\n\d+\n\d{2}:\d{2}:\d{2},\d{3}", content)
-                        )
-                    data["srt_path"] = path
-                    break
-        except:
-            pass
-
-    data["line_count"] = line_count
-    data["step"] = "wait_split"
-
-    await message.edit(
-        f"📊 **{data['title']}**\n"
-        f"စာကြောင်းရေ: `{line_count}`\n\n"
-        f"ခွဲမည့် လူအရေအတွက် ပို့ပါ"
+            ]
+        ]
     )
 
-# ---------- Download & Send ----------
-async def start_final_process(client, message, uid):
-    data = user_data[uid]
-    ensure_dirs()
+def split_lines(lines, parts):
+    total = len(lines)
+    size = math.ceil(total / parts)
+    result = []
+    start = 0
+    for _ in range(parts):
+        end = min(start + size, total)
+        result.append((start + 1, end))
+        start = end
+    return result
 
-    status = await message.reply_text("📥 Downloading (iOS client)...")
+# ================= HANDLERS =================
 
-    res = data.get("res", "720")
+@app.on_message(filters.command("start"))
+async def start(_, msg):
+    await msg.reply(
+        "🎬 **BLSFLIX Downloader**\n\n"
+        "YouTube link ပို့ပါ 👇"
+    )
+
+@app.on_message(filters.text)
+async def text_handler(_, msg):
+    user_id = msg.from_user.id
+    text = msg.text.strip()
+
+    # YouTube link
+    if text.startswith("http"):
+        user_links[user_id] = text
+        await msg.reply("📺 Resolution ရွေးပါ 👇", reply_markup=resolution_kb())
+        return
+
+    # subtitle split number
+    if text.isdigit() and user_id in subtitle_state:
+        data = subtitle_state.pop(user_id)
+        parts = int(text)
+        ranges = split_lines(data["lines"], parts)
+
+        out = f"🎬 {data['title']}\nTotal lines: {len(data['lines'])}\n\n"
+        for i, (s, e) in enumerate(ranges, 1):
+            out += f"{i}. {s} - {e}\n"
+
+        await msg.reply(out)
+
+@app.on_callback_query(filters.regex("^res_"))
+async def resolution_handler(_, cq):
+    user_id = cq.from_user.id
+    res = cq.data.split("_")[1]
+    url = user_links.get(user_id)
+
+    if not url:
+        await cq.answer("Link မတွေ့ပါ", show_alert=True)
+        return
+
+    await cq.answer()
+    status = await cq.message.reply("📥 Downloading...")
 
     ydl_opts = {
-        "outtmpl": "downloads/%(title)s.%(ext)s",
+        "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
         "format": f"bestvideo[height<={res}]+bestaudio/best",
-        "quiet": True,
+        "merge_output_format": "mp4",
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitlesformat": "srt",
+        "noplaylist": True,
         "extractor_args": {
-            "youtube": {"player_client": ["ios"]}
+            "youtube": {
+                "player_client": ["android_vr"]
+            }
         }
     }
 
     try:
-        info = await asyncio.to_thread(
-            lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(
-                data["url"], download=True
-            )
-        )
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            title = info.get("title", "video")
+            video_path = ydl.prepare_filename(info).rsplit(".", 1)[0] + ".mp4"
 
-        video_path = yt_dlp.YoutubeDL(ydl_opts).prepare_filename(info)
+        await status.edit("📤 Uploading...")
 
-        await status.edit("📤 Telegram သို့ တင်ပို့နေသည်...")
-        await client.send_video(
-            message.chat.id,
+        await cq.message.reply_video(
             video=video_path,
-            caption=data["title"],
-            supports_streaming=True
+            caption=f"🎬 {title}\n📺 {res}p",
+            duration=info.get("duration", 0),
+            width=info.get("width", 0),
+            height=info.get("height", 0),
         )
 
-    finally:
+        subs = info.get("requested_subtitles") or {}
+        if subs:
+            lang, data = list(subs.items())[0]
+            srt_path = data["filepath"]
+
+            await cq.message.reply_document(
+                srt_path,
+                caption=f"📄 Subtitle ({lang})"
+            )
+
+            with open(srt_path, encoding="utf-8", errors="ignore") as f:
+                raw = f.read().splitlines()
+
+            lines = [l for l in raw if l and "-->" not in l and not l.isdigit()]
+
+            subtitle_state[user_id] = {
+                "title": title,
+                "lines": lines
+            }
+
+            await cq.message.reply(
+                f"✅ Subtitle ရပါပြီ\n"
+                f"Total lines: {len(lines)}\n"
+                f"ဘယ်နှစ်ပိုင်း ခွဲမလဲ? (ဂဏန်းပို့ပါ)"
+            )
+
+        await status.delete()
         if os.path.exists(video_path):
             os.remove(video_path)
-        if data.get("srt_path") and os.path.exists(data["srt_path"]):
-            os.remove(data["srt_path"])
-        user_data.pop(uid, None)
-        await status.delete()
 
-# ---------- Run ----------
-if __name__ == "__main__":
-    print("✅ Android Mode Bot started")
-    app.run()
+    except Exception as e:
+        await status.edit(f"❌ Error:\n{e}")
 
-
+# ================= RUN =================
+print("🤖 Bot started…")
+app.run()
