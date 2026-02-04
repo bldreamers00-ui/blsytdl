@@ -115,11 +115,11 @@ async def start_final_process(client, message, uid):
     data = user_data[uid]
     status = await message.reply_text("📥 Android API ဖြင့် ဒေါင်းလုဒ်ဆွဲနေသည်...")
     ydl_opts = {
-        'format': f'bestvideo[height<={data["res"]}][ext=mp4]+bestaudio[ext=m4a]/best[height<={data["res"]}][ext=mp4]/best',
-        'outtmpl': f'downloads/{uid}.%(ext)s',
-        'extractor_args': {'youtube': {'player_client': ['android']}},
-        'merge_output_format': 'mp4'
-    }
+    'quiet': True,
+    # iOS client ကို အသုံးပြုခြင်း (တစ်ခါတလေ Android ထက် ပိုအလုပ်လုပ်ပါတယ်)
+    'extractor_args': {'youtube': {'player_client': ['ios']}},
+    'nocheckcertificate': True
+}
     try:
         if not os.path.exists('downloads'): os.makedirs('downloads')
         info = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(data['url'], download=True))
@@ -136,3 +136,4 @@ async def start_final_process(client, message, uid):
 if __name__ == "__main__":
     print("Bot is starting with Android Mode...")
     app.run()
+
